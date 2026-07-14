@@ -11,7 +11,7 @@
 !     **    Lee M. Thompson, Xianghai Sheng, Andrew D. Mahler, Dave        **
 !     **    Mullally, and Hrant P. Hratchian                               **
 !     **                                                                   **
-!     **                          Version 26.7.0                           **
+!     **                          Version 26.7.1                           **
 !     **                           July 13, 2026                           **
 !     **                                                                   **
 !     **                                                                   **
@@ -33,11 +33,211 @@
         use mqc_general
         use iso_fortran_env, only: int32, int64, real64
 !
+!     Matrix-file layout metadata...
+!
+      type MQC_MatrixFile_Layout
+        integer(kind=int32)::integerBytes=0
+        integer(kind=int64)::fileVersion=0
+        integer(kind=int64)::nHeaderRecords=0
+        integer(kind=int64)::len12Bytes=0
+        integer(kind=int64)::len4Bytes=0
+        logical::rawFormat=.false.
+      contains
+        procedure,public::set => MQC_MatrixFile_Layout_Set
+        procedure,public::setForWrite => MQC_MatrixFile_Layout_Set_For_Write
+      end type MQC_MatrixFile_Layout
+!
+!     Logical and stored sizes for one fixed-width character record.
+!
+      type MQC_MatrixFile_Character_Record_Layout
+        integer(kind=int64)::elementCount=0
+        integer(kind=int64)::elementWidth=0
+        integer(kind=int64)::payloadCharacters=0
+        integer(kind=int64)::bufferCharacters=0
+        integer(kind=int64)::payloadWords=0
+        integer(kind=int64)::bufferWords=0
+      end type MQC_MatrixFile_Character_Record_Layout
+!
 !
 !
 !     Subroutines/Functions...
 !
       CONTAINS
+!PROCEDURE MQC_MatrixFile_Layout_Set
+      subroutine MQC_MatrixFile_Layout_Set(layout,fileVersion,  &
+        nHeaderRecords,len12Bytes,len4Bytes)
+!
+!     Store layout metadata read from a Gaussian matrix-file header. The
+!     integer byte width selects the matching GauOpen wrapper implementation,
+!     while Len12L and Len4L retain the file-format word sizes.
+!
+!     H. P. Hratchian, 2026.
+!
+      implicit none
+      class(MQC_MatrixFile_Layout),intent(inout)::layout
+      integer(kind=int64),intent(in)::fileVersion,nHeaderRecords,  &
+        len12Bytes,len4Bytes
+!
+      integer(kind=int32)::intPrecision,callTest
+      character(len=64)::name
+!
+      callTest = 0
+      call MQC_Mat_Precision(name,intPrecision,callTest)
+      if(intPrecision.ne.4.and.intPrecision.ne.8)  &
+        call MQC_Error_I('MQC_MatrixFile_Layout_Set: Matrix-file integer '//  &
+          'width must be 4 or 8 bytes.',6,'intPrecision',  &
+          INT(intPrecision,kind=int64))
+      if(len12Bytes.le.0)  &
+        call MQC_Error_I('MQC_MatrixFile_Layout_Set: Len12L must be '//  &
+          'positive.',6,'len12Bytes',len12Bytes)
+      if(len4Bytes.le.0)  &
+        call MQC_Error_I('MQC_MatrixFile_Layout_Set: Len4L must be '//  &
+          'positive.',6,'len4Bytes',len4Bytes)
+!
+      layout%integerBytes = intPrecision
+      layout%fileVersion = fileVersion
+      layout%nHeaderRecords = nHeaderRecords
+      layout%len12Bytes = len12Bytes
+      layout%len4Bytes = len4Bytes
+      layout%rawFormat = .false.
+!
+      return
+      end subroutine MQC_MatrixFile_Layout_Set
+
+
+!PROCEDURE MQC_MatrixFile_Layout_Set_For_Write
+      subroutine MQC_MatrixFile_Layout_Set_For_Write(layout)
+!
+!     Initialize layout metadata for a newly written Gaussian matrix file.
+!     The active GauOpen integer precision determines both file word sizes.
+!
+!     H. P. Hratchian, 2026.
+!
+      implicit none
+      class(MQC_MatrixFile_Layout),intent(inout)::layout
+!
+      integer(kind=int32)::intPrecision,callTest
+      character(len=64)::name
+!
+      callTest = 0
+      call MQC_Mat_Precision(name,intPrecision,callTest)
+      if(intPrecision.ne.4.and.intPrecision.ne.8)  &
+        call MQC_Error_I('MQC_MatrixFile_Layout_Set_For_Write: Matrix-'//  &
+          'file integer width must be 4 or 8 bytes.',6,'intPrecision',  &
+          INT(intPrecision,kind=int64))
+!
+      layout%integerBytes = intPrecision
+      layout%fileVersion = 3
+      layout%nHeaderRecords = 11
+      layout%len12Bytes = intPrecision
+      layout%len4Bytes = intPrecision
+      layout%rawFormat = .false.
+!
+      return
+      end subroutine MQC_MatrixFile_Layout_Set_For_Write
+
+
+!PROCEDURE MQC_MatrixFile_Get_Character_Record_Layout
+      function MQC_MatrixFile_Get_Character_Record_Layout(layout,nTot,  &
+        lenBuf,n1,n2,n3,n4,n5,typeA) result(recordLayout)
+!
+!     Translate raw GauOpen character-record word counts into logical fixed-
+!     width character elements. A positive TypeA identifies character data.
+!     TypeA=1 is the legacy marker for one character scalar spanning the full
+!     payload; larger TypeA values are explicit fixed element widths. NTot and
+!     LenBuf are expressed in Len4L-sized file words. This normalization
+!     follows Gaussian's RdBAF1 routine.
+!
+!     H. P. Hratchian, 2026.
+!
+      implicit none
+      type(MQC_MatrixFile_Layout),intent(in)::layout
+      integer(kind=int64),intent(in)::nTot,lenBuf,n1,n2,n3,n4,n5,typeA
+      type(MQC_MatrixFile_Character_Record_Layout)::recordLayout
+      integer(kind=int64)::rawElementCount
+!
+      if(layout%len4Bytes.le.0)  &
+        call MQC_Error_I('Character FAF record has invalid Len4L.',6,  &
+          'layout%len4Bytes',layout%len4Bytes)
+      if(nTot.le.0)  &
+        call MQC_Error_I('Character FAF record has invalid NTot.',6,  &
+          'nTot',nTot)
+      if(lenBuf.le.0)  &
+        call MQC_Error_I('Character FAF record has invalid LenBuf.',6,  &
+          'lenBuf',lenBuf)
+      if(typeA.le.0)  &
+        call MQC_Error_I('Character FAF record has invalid TypeA.',6,  &
+          'typeA',typeA)
+!
+      rawElementCount = LenArr(n1,n2,n3,n4,n5)
+      if(rawElementCount.le.0)  &
+        call MQC_Error_I('Character FAF record has invalid raw dimensions.',  &
+          6,'rawElementCount',rawElementCount)
+      recordLayout%payloadCharacters = layout%len4Bytes*nTot
+      recordLayout%payloadWords = nTot
+      if(typeA.eq.1) then
+        recordLayout%elementWidth = recordLayout%payloadCharacters
+      else
+        recordLayout%elementWidth = typeA
+      endIf
+      if(MOD(recordLayout%payloadCharacters,  &
+        recordLayout%elementWidth).ne.0)  &
+        call MQC_Error('Character FAF payload length is not divisible by '//  &
+          'the logical element width.',6)
+      recordLayout%elementCount = recordLayout%payloadCharacters/  &
+        recordLayout%elementWidth
+      recordLayout%bufferCharacters = layout%len4Bytes*lenBuf
+      recordLayout%bufferWords = lenBuf
+!
+      return
+      end function MQC_MatrixFile_Get_Character_Record_Layout
+
+
+!PROCEDURE MQC_MatrixFile_Get_Character_Write_Layout
+      function MQC_MatrixFile_Get_Character_Write_Layout(layout,  &
+        elementCount,elementWidth,bufferWords) result(recordLayout)
+!
+!     Translate logical fixed-width character elements into raw GauOpen word
+!     and character counts for writing. The payload must end on a complete
+!     Len4L word so the logical shape is preserved when Gaussian normalizes
+!     the record. TypeA=1 is reserved for the legacy scalar marker.
+!
+!     H. P. Hratchian, 2026.
+!
+      implicit none
+      type(MQC_MatrixFile_Layout),intent(in)::layout
+      integer(kind=int64),intent(in)::elementCount,elementWidth,bufferWords
+      type(MQC_MatrixFile_Character_Record_Layout)::recordLayout
+!
+      if(layout%len4Bytes.le.0)  &
+        call MQC_Error_I('Character FAF write has invalid Len4L.',6,  &
+          'layout%len4Bytes',layout%len4Bytes)
+      if(elementCount.le.0)  &
+        call MQC_Error_I('Character FAF write has no logical elements.',6,  &
+          'elementCount',elementCount)
+      if(elementWidth.le.1)  &
+        call MQC_Error_I('Character FAF element width must be greater than '//  &
+          'one; TypeA=1 is the legacy scalar marker.',6,'elementWidth',  &
+          elementWidth)
+      if(bufferWords.le.0)  &
+        call MQC_Error_I('Character FAF write has invalid buffer words.',6,  &
+          'bufferWords',bufferWords)
+!
+      recordLayout%elementCount = elementCount
+      recordLayout%elementWidth = elementWidth
+      recordLayout%payloadCharacters = elementCount*elementWidth
+      if(MOD(recordLayout%payloadCharacters,layout%len4Bytes).ne.0)  &
+        call MQC_Error('Character FAF payload must occupy a whole number '//  &
+          'of Len4L words.',6)
+      recordLayout%payloadWords = recordLayout%payloadCharacters/  &
+        layout%len4Bytes
+      recordLayout%bufferWords = bufferWords
+      recordLayout%bufferCharacters = layout%len4Bytes*bufferWords
+!
+      return
+      end function MQC_MatrixFile_Get_Character_Write_Layout
+
+
       Subroutine MQC_Read_Mat_Precision_Test(MatFileName, IntPrecision)
         Implicit None
 !
@@ -501,7 +701,6 @@
           N3_4,N4_4,N5_4,TypeA_4,NRI_4
         Logical::ASym
 
-        Integer(kind=int64)::LR
         Integer(kind=int32)::IntPrecision, Call_Test
         Character(Len=64)::Name
 
@@ -553,20 +752,6 @@
            endIf
 #endif
         endif
-!
-!       UCM GauOpen stores character data in integer-sized chunks. Normalize
-!       character labels so TypeA is the fixed character width and NTot is the
-!       number of fixed-width character fields.
-!
-#ifdef UCMGAUOPEN
-        if(.not.EOF.and.NI.eq.1.and.NR.eq.0.and.TypeA.gt.0) then
-          LR = LenArr(N1,N2,N3,N4,N5)
-          if(LR.gt.0) then
-            TypeA = (IntPrecision*NTot)/LR
-            NTot = LR
-          endIf
-        endIf
-#endif
       Return
       End Subroutine Rd_Labl_TypeA
 
@@ -725,18 +910,20 @@
            N5_4 = N5
            TypeA_4 = TypeA
 #ifdef UCMGAUOPEN
+!
+!          GauOpen's label writer preserves the exact field sequence expected
+!          by RdLabl. A negative TypeA requests the two-real-block convention,
+!          which is encoded by negating the nonnegative NR value.
+!
            if(NR_4.lt.0) then
              Call MQC_Error('Wr_Labl_TypeA: NR must be nonnegative.')
            endIf
-           if(TypeA_4.gt.0) then
-             write(IU_4) CBuf,NI_4,NR_4,1,NTot_4,LenBuf_4,N1_4,N2_4,  &
-               N3_4,N4_4,N5_4,TypeA_4
-           elseIf(TypeA_4.lt.0) then
-             write(IU_4) CBuf,NI_4,-NR_4,2,NTot_4,LenBuf_4,N1_4,  &
-               N2_4,N3_4,N4_4,N5_4,TypeA_4
+           if(TypeA_4.lt.0) then
+             Call WrLabl4(IU_4,CBuf,NI_4,-NR_4,NTot_4,LenBuf_4,N1_4,  &
+               N2_4,N3_4,N4_4,N5_4,TypeA_4)
            else
-             write(IU_4) CBuf,NI_4,NR_4,1,NTot_4,LenBuf_4,N1_4,N2_4,  &
-               N3_4,N4_4,N5_4,TypeA_4
+             Call WrLabl4(IU_4,CBuf,NI_4,NR_4,NTot_4,LenBuf_4,N1_4,  &
+               N2_4,N3_4,N4_4,N5_4,TypeA_4)
            endIf
 #else
            ASym = TypeA.ne.0
@@ -748,15 +935,19 @@
 !         File requires 64-bit integers, so no change.
 !
 #ifdef UCMGAUOPEN
+!
+!          Keep the 8-byte label record identical to the 4-byte convention
+!          above.
+!
            if(NR.lt.0) then
              Call MQC_Error('Wr_Labl_TypeA: NR must be nonnegative.')
            endIf
-           if(TypeA.gt.0) then
-             write(IU) CBuf,NI,NR,1,NTot,LenBuf,N1,N2,N3,N4,N5,TypeA
-           elseIf(TypeA.lt.0) then
-             write(IU) CBuf,NI,-NR,2,NTot,LenBuf,N1,N2,N3,N4,N5,TypeA
+           if(TypeA.lt.0) then
+             Call WrLabl8(IU,CBuf,NI,-NR,NTot,LenBuf,N1,N2,N3,N4,N5,  &
+               TypeA)
            else
-             write(IU) CBuf,NI,NR,1,NTot,LenBuf,N1,N2,N3,N4,N5,TypeA
+             Call WrLabl8(IU,CBuf,NI,NR,NTot,LenBuf,N1,N2,N3,N4,N5,  &
+               TypeA)
            endIf
 #else
            ASym = TypeA.ne.0
