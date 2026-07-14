@@ -11,8 +11,8 @@
 !     **    Lee M. Thompson, Xianghai Sheng, Andrew D. Mahler, Dave        **
 !     **    Mullally, and Hrant P. Hratchian                               **
 !     **                                                                   **
-!     **                          Version 25.11.2                          **
-!     **                         November 11, 2025                         **
+!     **                          Version 26.7.0                           **
+!     **                           July 13, 2026                           **
 !     **                                                                   **
 !     **                                                                   **
 !     ** Modules beloning to MQCPack:                                      **
@@ -477,19 +477,54 @@
         Integer(kind=int64),Intent(Out)::NI,NR,NTot,LenBuf,N1,N2,N3,N4,N5,NRI
         Logical,Intent(Out)::ASym,EOF
 
-        Integer(kind=int32)::IU_4,IVers_4
-        Integer(kind=int32)::NI_4,NR_4,NTot_4,LenBuf_4,N1_4,N2_4,N3_4,N4_4,N5_4,NRI_4
+        Integer(kind=int64)::TypeA
 
+        Call Rd_Labl_TypeA(IU,IVers,CBuf,NI,NR,NTot,LenBuf,N1,N2,N3,  &
+          N4,N5,TypeA,NRI,EOF)
+        ASym = TypeA.ne.0
+      Return
+      End Subroutine Rd_Labl
+
+!PROCEDURE Rd_Labl_TypeA
+      Subroutine Rd_Labl_TypeA(IU,IVers,CBuf,NI,NR,NTot,LenBuf,N1,N2,  &
+        N3,N4,N5,TypeA,NRI,EOF)
+        Implicit None
+
+        Integer(kind=int64),Intent(In)::IU,IVers
+        Character(Len=64),Intent(Out)::CBuf
+        Integer(kind=int64),Intent(Out)::NI,NR,NTot,LenBuf,N1,N2,N3,  &
+          N4,N5,TypeA,NRI
+        Logical,Intent(Out)::EOF
+
+        Integer(kind=int32)::IU_4,IVers_4
+        Integer(kind=int32)::NI_4,NR_4,NTot_4,LenBuf_4,N1_4,N2_4,  &
+          N3_4,N4_4,N5_4,TypeA_4,NRI_4
+        Logical::ASym
+
+        Integer(kind=int64)::LR
         Integer(kind=int32)::IntPrecision, Call_Test
         Character(Len=64)::Name
 
         Call_Test = 0
         call MQC_Mat_Precision(Name, IntPrecision, Call_Test)
         if ( IntPrecision .eq. 4 ) then
-! File requires 32-bit integers
+!
+!         File requires 32-bit integers.
+!
            IU_4 = IU
            IVers_4 = IVers
-           Call RdLabl4(IU_4,IVers_4,CBuf,NI_4,NR_4,NTot_4,LenBuf_4,N1_4,N2_4,N3_4,N4_4,N5_4,ASym,NRI_4,EOF)
+#ifdef UCMGAUOPEN
+           Call RdLabl4(IU_4,IVers_4,CBuf,NI_4,NR_4,NTot_4,LenBuf_4,  &
+             N1_4,N2_4,N3_4,N4_4,N5_4,TypeA_4,NRI_4,EOF)
+#else
+           Call RdLabl4(IU_4,IVers_4,CBuf,NI_4,NR_4,NTot_4,LenBuf_4,  &
+             N1_4,N2_4,N3_4,N4_4,N5_4,ASym,NRI_4,EOF)
+           if(ASym) then
+             TypeA_4 = -1
+           else
+             TypeA_4 = 0
+           endIf
+#endif
            NI = NI_4
            NR = NR_4
            NTot = NTot_4
@@ -499,13 +534,41 @@
            N3 = N3_4
            N4 = N4_4
            N5 = N5_4
+           TypeA = TypeA_4
            NRI = NRI_4
         else
-! File requires 64-bit integers, so no change
-           Call RdLabl8(IU,IVers,CBuf,NI,NR,NTot,LenBuf,N1,N2,N3,N4,N5,ASym,NRI,EOF)
+!
+!         File requires 64-bit integers, so no change.
+!
+#ifdef UCMGAUOPEN
+           Call RdLabl8(IU,IVers,CBuf,NI,NR,NTot,LenBuf,N1,N2,N3,N4,  &
+             N5,TypeA,NRI,EOF)
+#else
+           Call RdLabl8(IU,IVers,CBuf,NI,NR,NTot,LenBuf,N1,N2,N3,N4,  &
+             N5,ASym,NRI,EOF)
+           if(ASym) then
+             TypeA = -1
+           else
+             TypeA = 0
+           endIf
+#endif
         endif
+!
+!       UCM GauOpen stores character data in integer-sized chunks. Normalize
+!       character labels so TypeA is the fixed character width and NTot is the
+!       number of fixed-width character fields.
+!
+#ifdef UCMGAUOPEN
+        if(.not.EOF.and.NI.eq.1.and.NR.eq.0.and.TypeA.gt.0) then
+          LR = LenArr(N1,N2,N3,N4,N5)
+          if(LR.gt.0) then
+            TypeA = (IntPrecision*NTot)/LR
+            NTot = LR
+          endIf
+        endIf
+#endif
       Return
-      End Subroutine Rd_Labl
+      End Subroutine Rd_Labl_TypeA
 
       Subroutine Rd_RInd(IU,NR,LR,NTot,LenBuf,LNZ,RArr)
         Implicit None
@@ -617,14 +680,39 @@
         Logical,Intent(In)::ASym
         Character(Len=*),Intent(In)::CBuf
 
+        Integer(kind=int64)::TypeA
+
+        if(ASym) then
+          TypeA = -1
+        else
+          TypeA = 0
+        endIf
+        Call Wr_Labl_TypeA(IU,CBuf,NI,NR,NTot,LenBuf,N1,N2,N3,N4,N5,  &
+          TypeA)
+      Return
+      End Subroutine Wr_Labl
+
+!PROCEDURE Wr_Labl_TypeA
+      Subroutine Wr_Labl_TypeA(IU,CBuf,NI,NR,NTot,LenBuf,N1,N2,N3,N4,N5,  &
+        TypeA)
+        Implicit None
+
+        Integer(kind=int64),Intent(In)::IU,NI,NR,NTot,LenBuf,N1,N2,N3,N4,N5
+        Integer(kind=int64),Intent(In)::TypeA
+        Character(Len=*),Intent(In)::CBuf
+
         Integer(kind=int32)::IU_4,NI_4,NR_4,NTot_4,LenBuf_4,N1_4,N2_4,N3_4,N4_4,N5_4
+        Integer(kind=int32)::TypeA_4
         Integer(kind=int32)::IntPrecision, Call_Test
         Character(Len=64)::Name
+        Logical::ASym
 
         Call_Test = 0
         call MQC_Mat_Precision(Name, IntPrecision, Call_Test)
         if ( IntPrecision .eq. 4 ) then
-! File requires 32-bit integers
+!
+!         File requires 32-bit integers.
+!
            IU_4 = IU
            NI_4 = NI
            NR_4 = NR
@@ -635,13 +723,48 @@
            N3_4 = N3
            N4_4 = N4
            N5_4 = N5
-           Call WrLabl4(IU_4,CBuf,NI_4,NR_4,NTot_4,LenBuf_4,N1_4,N2_4,N3_4,N4_4,N5_4,ASym)
+           TypeA_4 = TypeA
+#ifdef UCMGAUOPEN
+           if(NR_4.lt.0) then
+             Call MQC_Error('Wr_Labl_TypeA: NR must be nonnegative.')
+           endIf
+           if(TypeA_4.gt.0) then
+             write(IU_4) CBuf,NI_4,NR_4,1,NTot_4,LenBuf_4,N1_4,N2_4,  &
+               N3_4,N4_4,N5_4,TypeA_4
+           elseIf(TypeA_4.lt.0) then
+             write(IU_4) CBuf,NI_4,-NR_4,2,NTot_4,LenBuf_4,N1_4,  &
+               N2_4,N3_4,N4_4,N5_4,TypeA_4
+           else
+             write(IU_4) CBuf,NI_4,NR_4,1,NTot_4,LenBuf_4,N1_4,N2_4,  &
+               N3_4,N4_4,N5_4,TypeA_4
+           endIf
+#else
+           ASym = TypeA.ne.0
+           Call WrLabl4(IU_4,CBuf,NI_4,NR_4,NTot_4,LenBuf_4,N1_4,  &
+             N2_4,N3_4,N4_4,N5_4,ASym)
+#endif
         else
-! File requires 64-bit integers, so no change
+!
+!         File requires 64-bit integers, so no change.
+!
+#ifdef UCMGAUOPEN
+           if(NR.lt.0) then
+             Call MQC_Error('Wr_Labl_TypeA: NR must be nonnegative.')
+           endIf
+           if(TypeA.gt.0) then
+             write(IU) CBuf,NI,NR,1,NTot,LenBuf,N1,N2,N3,N4,N5,TypeA
+           elseIf(TypeA.lt.0) then
+             write(IU) CBuf,NI,-NR,2,NTot,LenBuf,N1,N2,N3,N4,N5,TypeA
+           else
+             write(IU) CBuf,NI,NR,1,NTot,LenBuf,N1,N2,N3,N4,N5,TypeA
+           endIf
+#else
+           ASym = TypeA.ne.0
            Call WrLabl8(IU,CBuf,NI,NR,NTot,LenBuf,N1,N2,N3,N4,N5,ASym)
+#endif
         endif
       Return
-      End Subroutine Wr_Labl
+      End Subroutine Wr_Labl_TypeA
 
       Subroutine Wr_RBuf(IU,NTot,LenBuf,Arr)
         Implicit None
@@ -2155,6 +2278,102 @@
         endif
       Return
       End Subroutine Wr_LCBuf
+
+!PROCEDURE Rd_ChBuf
+      Subroutine Rd_ChBuf(IU,LR,LenBuf,CArr)
+        Implicit None
+
+        Integer(kind=int64),Intent(In)::IU,LR,LenBuf
+        Character(Len=*),Intent(InOut)::CArr
+
+        Integer(kind=int32)::IU_4,LR_4,LenBuf_4
+        Integer(kind=int32)::IntPrecision, Call_Test
+        Character(Len=64)::Name
+
+        Call_Test = 0
+        call MQC_Mat_Precision(Name, IntPrecision, Call_Test)
+        if ( IntPrecision .eq. 4 ) then
+!
+!         File requires 32-bit integers.
+!
+           IU_4 = IU
+           LR_4 = LR
+           LenBuf_4 = LenBuf
+           call Rd_ChBuf4(IU_4,LR_4,LenBuf_4,CArr)
+        else
+!
+!         File requires 64-bit integers, so no change.
+!
+           call Rd_ChBuf8(IU,LR,LenBuf,CArr)
+        endif
+      Return
+      End Subroutine Rd_ChBuf
+
+!PROCEDURE Rd_ChBufI
+      Subroutine Rd_ChBufI(IU,LR,LenBuf,CArr,IArr)
+        Implicit None
+
+        Integer(kind=int64),Intent(In)::IU,LR,LenBuf
+        Character(Len=*),Intent(InOut)::CArr
+        Integer(kind=int64),Dimension(LR),Intent(Out)::IArr
+
+        Integer(kind=int32)::IU_4,LR_4,LenBuf_4
+        Integer(kind=int32),Dimension(LR)::IArr_4
+        Integer(kind=int64)::I
+        Integer(kind=int32)::IntPrecision, Call_Test
+        Character(Len=64)::Name
+
+        Call_Test = 0
+        call MQC_Mat_Precision(Name, IntPrecision, Call_Test)
+        if ( IntPrecision .eq. 4 ) then
+!
+!         File requires 32-bit integers.
+!
+           IU_4 = IU
+           LR_4 = LR
+           LenBuf_4 = LenBuf
+           call Rd_ChBuf4I(IU_4,LR_4,LenBuf_4,CArr,IArr_4)
+           do I = 1,LR
+              IArr(I) = IArr_4(I)
+           endDo
+        else
+!
+!         File requires 64-bit integers, so no change.
+!
+           call Rd_ChBuf8I(IU,LR,LenBuf,CArr,IArr)
+        endif
+      Return
+      End Subroutine Rd_ChBufI
+
+!PROCEDURE Wr_ChBuf
+      Subroutine Wr_ChBuf(IU,LR,LenBuf,CArr)
+        Implicit None
+
+        Integer(kind=int64),Intent(In)::IU,LR,LenBuf
+        Character(Len=*),Intent(In)::CArr
+
+        Integer(kind=int32)::IU_4,LR_4,LenBuf_4
+        Integer(kind=int32)::IntPrecision, Call_Test
+        Character(Len=64)::Name
+
+        Call_Test = 0
+        call MQC_Mat_Precision(Name, IntPrecision, Call_Test)
+        if ( IntPrecision .eq. 4 ) then
+!
+!         File requires 32-bit integers.
+!
+           IU_4 = IU
+           LR_4 = LR
+           LenBuf_4 = LenBuf
+           call Wr_ChBuf4(IU_4,LR_4,LenBuf_4,CArr)
+        else
+!
+!         File requires 64-bit integers, so no change.
+!
+           call Wr_ChBuf8(IU,LR,LenBuf,CArr)
+        endif
+      Return
+      End Subroutine Wr_ChBuf
 
       Subroutine Rd_CBuf(IU,NTot,LenBuf,Arr)
         Implicit None

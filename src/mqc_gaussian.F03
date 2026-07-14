@@ -10,8 +10,8 @@
 !     **    Lee M. Thompson, Xianghai Sheng, Andrew D. Mahler, Dave        **
 !     **    Mullally, and Hrant P. Hratchian                               **
 !     **                                                                   **
-!     **                          Version 25.11.2                          **
-!     **                         November 11, 2025                         **
+!     **                          Version 26.7.0                           **
+!     **                           July 13, 2026                           **
 !     **                                                                   **
 !     **                                                                   **
 !     ** Modules beloning to MQCPack:                                      **
@@ -1134,7 +1134,7 @@
       integer::iout=6
 !
 !     Temporary local variables used when calling the gauopen routines.
-      integer::IVers,NI,NR,NTot,LenBuf,N1,N2,N3,N4,N5,NRI,LR
+      integer::IVers,NI,NR,NTot,LenBuf,N1,N2,N3,N4,N5,NRI,LR,TypeA
       character(len=64)::cBuffer,tmpLabel
       logical::EOF,ASym
 !
@@ -1155,7 +1155,7 @@
  1000 format(' MQC_Gaussian_Read is looking for array ',A,  &
         ' in matrix file.')
  1010 format(' Label ',A48,' NI=',I2,' NR=',I2,' NRI=',I1,' NTot=',  &
-        I8,' LenBuf=',I8,' N=',5I6,' ASym=',L1,' LR=',I5)
+        I8,' LenBuf=',I8,' N=',5I6,' TypeA=',I8,' ASym=',L1,' LR=',I5)
  1020 Format( " " )!
  1040 Format( A, I15 )
  1050 Format( 2A )
@@ -1224,11 +1224,12 @@
       found = .false.
       outerLoop:do i = 1,2
         EOF = .false.
-        Call Rd_Labl(fileinfo%UnitNumber,IVers,cBuffer,NI,NR,NTot,LenBuf,  &
-          N1,N2,N3,N4,N5,ASym,NRI,EOF)
+        Call Rd_Labl_TypeA(fileinfo%UnitNumber,IVers,cBuffer,NI,NR,NTot,  &
+          LenBuf,N1,N2,N3,N4,N5,TypeA,NRI,EOF)
+        ASym = TypeA.ne.0
         LR = LenArr(N1,N2,N3,N4,N5)
         if(DEBUG) write(IOut,1010) TRIM(cBuffer),NI,NR,NRI,NTot,LenBuf,  &
-          N1,N2,N3,N4,N5,ASym,LR
+          N1,N2,N3,N4,N5,TypeA,ASym,LR
         do while(.not.EOF)
           call String_Change_Case(cBuffer,'u')
           if(TRIM(tmpLabel) == TRIM(cBuffer)) then
@@ -1254,12 +1255,12 @@
               write(IOut,*)   &
                 ' MQC_Gaussian_Unformatted_Matrix_Array_Type = ',  &
                 MQC_Gaussian_Unformatted_Matrix_Array_Type(NI,NR,N1,  &
-                N2,N3,N4,N5,NRI,ASym)
+                N2,N3,N4,N5,NRI,ASym,TypeA)
               write(IOut,*)  &
                 ' MQC_Gaussian_Unformatted_Matrix_Array_Type = ',  &
-                MQC_Gaussian_Unformatted_Matrix_Array_Type(NI,NR,N1,N2,N3,N4,N5,NRI,ASym)
+                MQC_Gaussian_Unformatted_Matrix_Array_Type(NI,NR,N1,N2,N3,N4,N5,NRI,ASym,TypeA)
             endIf
-            select case(MQC_Gaussian_Unformatted_Matrix_Array_Type(NI,NR,N1,N2,N3,N4,N5,NRI,ASym))
+            select case(MQC_Gaussian_Unformatted_Matrix_Array_Type(NI,NR,N1,N2,N3,N4,N5,NRI,ASym,TypeA))
             case('INTEGER-VECTOR')
               allocate(integerTmp(LR))
               call Rd_IBuf(fileinfo%unitNumber,NTot,LenBuf,integerTmp)
@@ -1468,8 +1469,8 @@
               write(*,1020)
               call mqc_error_a('No general way to load mixed types as of yet &
       &         We are doing it case-by-case at the moment and this does not match.', 6, &
-      'MQC_Gaussian_Unformatted_Matrix_Array_Type(NI,NR,N1,N2,N3,N4,N5,NRI,ASym)', &
-      MQC_Gaussian_Unformatted_Matrix_Array_Type(NI,NR,N1,N2,N3,N4,N5,NRI,ASym) )
+      'MQC_Gaussian_Unformatted_Matrix_Array_Type(NI,NR,N1,N2,N3,N4,N5,NRI,ASym,TypeA)', &
+      MQC_Gaussian_Unformatted_Matrix_Array_Type(NI,NR,N1,N2,N3,N4,N5,NRI,ASym,TypeA) )
             case('2ERIS-SYMSYMR4TENSOR')
               if(Present(r4TensorOut)) then
                 if(NRI.eq.1) then
@@ -1549,22 +1550,23 @@
               deallocate(arrayTmp)
 !
             case default
-              write(*,1050)' Matrix type: ',Trim(MQC_Gaussian_Unformatted_Matrix_Array_Type(NI,NR,N1,N2,N3,N4,N5,NRI,ASym))
+              write(*,1050)' Matrix type: ',Trim(MQC_Gaussian_Unformatted_Matrix_Array_Type(NI,NR,N1,N2,N3,N4,N5,NRI,ASym,TypeA))
               call mqc_error_A('Found strange matrix type in Gaussian matrix read routine.', 6, &
-                   'MQC_Gaussian_Unformatted_Matrix_Array_Type(NI,NR,N1,N2,N3,N4,N5,NRI,ASym)', &
-                   MQC_Gaussian_Unformatted_Matrix_Array_Type(NI,NR,N1,N2,N3,N4,N5,NRI,ASym) )
+                   'MQC_Gaussian_Unformatted_Matrix_Array_Type(NI,NR,N1,N2,N3,N4,N5,NRI,ASym,TypeA)', &
+                   MQC_Gaussian_Unformatted_Matrix_Array_Type(NI,NR,N1,N2,N3,N4,N5,NRI,ASym,TypeA) )
             end select
             found = .true.
             exit outerLoop
           elseIf(NTot.gt.0) then
             Call Rd_Skip(fileinfo%UnitNumber,NTot,LenBuf)
           endIf
-          Call Rd_Labl(fileinfo%UnitNumber,IVers,cBuffer,NI,NR,NTot,LenBuf,  &
-            N1,N2,N3,N4,N5,ASym,NRI,EOF)
+          Call Rd_Labl_TypeA(fileinfo%UnitNumber,IVers,cBuffer,NI,NR,NTot,  &
+            LenBuf,N1,N2,N3,N4,N5,TypeA,NRI,EOF)
+          ASym = TypeA.ne.0
           LR = LenArr(N1,N2,N3,N4,N5)
           EOF = EOF.or.cBuffer.eq.'END'
           if(DEBUG) write(IOut,1010) TRIM(cBuffer),NI,NR,NRI,NTot,LenBuf,  &
-            N1,N2,N3,N4,N5,ASym,LR
+            N1,N2,N3,N4,N5,TypeA,ASym,LR
         endDo
         if(i==1) then
           my_filename = TRIM(fileinfo%filename)
@@ -5857,7 +5859,8 @@
 !=====================================================================
 !
 !PROCEDURE MQC_Gaussian_Unformatted_Matrix_Array_Type
-      Function MQC_Gaussian_Unformatted_Matrix_Array_Type(NI,NR,N1,N2,N3,N4,N5,NRI,ASym)
+      Function MQC_Gaussian_Unformatted_Matrix_Array_Type(NI,NR,N1,N2,  &
+        N3,N4,N5,NRI,ASym,TypeA)
 !
 !     This function returns a character string indicating the type of array
 !     found in a Gaussian matrix file. This is done using NI, NR, N1, N2, N3,
@@ -5873,18 +5876,20 @@
 !           "SYMMATRIXN"      Multiple (N) symmetric/hermitian matrix.
 !           "ASYMMATRIXN"     Multiple (N) asymmetric/antihermitian matrix.
 !
+!     Character records are identified by NI=1, NR=0, and positive TypeA/IType.
+!
 !     If the input flags do not uniquely identify a known array type, then this
 !     function returns "UNKNOWN".
 !
 !
-!     H. P. Hratchian, 2017.
+!     H. P. Hratchian, 2017, 2026.
 !     L. M. Thompson, 2018.
 !
 !
 !     Variable Declarations.
 !
       implicit none
-      integer::NI,NR,N1,N2,N3,N4,N5,NRI
+      integer::NI,NR,N1,N2,N3,N4,N5,NRI,TypeA
       logical::Asym
       character(len=64)::MQC_Gaussian_Unformatted_Matrix_Array_Type
 !
@@ -5893,6 +5898,10 @@
 !
       MQC_Gaussian_Unformatted_Matrix_Array_Type = "UNKNOWN"
       if(NR.lt.0.or.NI.lt.0) return
+      if(NI.eq.1.and.NR.eq.0.and.TypeA.gt.0) then
+        MQC_Gaussian_Unformatted_Matrix_Array_Type = "CHARACTER"
+        return
+      endIf
       if(NR.gt.0.and.NI.gt.0) then
         MQC_Gaussian_Unformatted_Matrix_Array_Type = "MIXED"
         if(NR.eq.1.and.NI.eq.1) then
