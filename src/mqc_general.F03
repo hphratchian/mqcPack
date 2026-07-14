@@ -10,7 +10,7 @@
 !     **    Lee M. Thompson, Xianghai Sheng, Andrew D. Mahler, Dave        **
 !     **    Mullally, and Hrant P. Hratchian                               **
 !     **                                                                   **
-!     **                          Version 26.7.0                           **
+!     **                          Version 26.7.1                           **
 !     **                           July 13, 2026                           **
 !     **                                                                   **
 !     **                                                                   **
@@ -215,8 +215,8 @@
 !
       if(PRESENT(major))         major         = 26
       if(PRESENT(minor))         minor         = 7
-      if(PRESENT(revision))      revision      = 0
-      if(PRESENT(versionString)) versionString = '26.7.0'
+      if(PRESENT(revision))      revision      = 1
+      if(PRESENT(versionString)) versionString = '26.7.1'
 !
       return
       end subroutine mqc_version
